@@ -65,14 +65,40 @@ jobs:
           bash scripts/bundle-python.sh
           xcodegen generate
 
+      - name: Fetch provisioning profile from App Store Connect
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+        run: |
+          cat > /tmp/fetch-profile.mjs <<'EOF'
+          import { createSign } from 'node:crypto';
+          import { writeFileSync } from 'node:fs';
+          const b64url = (s) => Buffer.from(s).toString('base64url');
+          const header = b64url(JSON.stringify({ alg: 'ES256', kid: process.env.ASC_API_KEY_ID, typ: 'JWT' }));
+          const now = Math.floor(Date.now() / 1000);
+          const payload = b64url(JSON.stringify({ iss: process.env.ASC_API_ISSUER_ID, iat: now, exp: now + 600, aud: 'appstoreconnect-v1' }));
+          const signer = createSign('SHA256');
+          signer.update(header + '.' + payload);
+          signer.end();
+          const signature = signer.sign({ key: process.env.ASC_API_KEY_P8, dsaEncoding: 'ieee-p1363' }).toString('base64url');
+          const jwt = header + '.' + payload + '.' + signature;
+          const url = 'https://api.appstoreconnect.apple.com/v1/profiles?filter[name]=' + encodeURIComponent('L Shell App Store') + '&limit=5';
+          const res = await fetch(url, { headers: { Authorization: 'Bearer ' + jwt } });
+          if (!res.ok) { console.error('ASC API error', res.status, await res.text()); process.exit(1); }
+          const json = await res.json();
+          if (!json.data || json.data.length === 0) { console.error('Profile not found'); process.exit(1); }
+          writeFileSync('/tmp/profile.mobileprovision', Buffer.from(json.data[0].attributes.profileContent, 'base64'));
+          console.log('Fetched profile:', json.data[0].attributes.name, json.data[0].attributes.uuid);
+          EOF
+          node /tmp/fetch-profile.mjs
+
       - name: Install signing assets
         env:
           CERT_P12_B64: ${{ secrets.CERT_P12_B64 }}
           CERT_PASSWORD: ${{ secrets.CERT_PASSWORD }}
-          PROFILE_B64: ${{ secrets.PROFILE_B64 }}
         run: |
           echo "$CERT_P12_B64" | base64 --decode > /tmp/cert.p12
-          echo "$PROFILE_B64" | base64 --decode > /tmp/profile.mobileprovision
           security create-keychain -p ci /tmp/ci.keychain
           security default-keychain -s /tmp/ci.keychain
           security unlock-keychain -p ci /tmp/ci.keychain
