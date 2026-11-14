@@ -48,6 +48,11 @@ jobs:
           npm pack @anthropic-ai/claude-code@2.1.112
           mkdir -p vendor/claude-code
           tar -xzf anthropic-ai-claude-code-2.1.112.tgz -C vendor/claude-code --strip-components=1
+          # The npm package ships desktop (macOS) native binaries under
+          # vendor/ (ripgrep, audio-capture, sshcrypto). They cannot run on
+          # iOS and App Store validation rejects them, so drop the binary
+          # files (JS wrappers stay).
+          find vendor/claude-code/vendor -type f \( -name 'rg' -o -name 'rg.exe' -o -name '*.node' \) -delete 2>/dev/null || true
 
       - name: Download frameworks
         run: |
@@ -176,8 +181,51 @@ jobs:
         run: |
           mkdir -p ~/.appstoreconnect/private_keys
           printf '%s' "$ASC_API_KEY_P8" > ~/.appstoreconnect/private_keys/AuthKey_${ASC_API_KEY_ID}.p8
+          set -o pipefail
           xcrun altool --upload-app \
             --file /tmp/export/*.ipa \
             --type ios \
             --apiKey "$ASC_API_KEY_ID" \
-            --apiIssuer "$ASC_API_ISSUER_ID"
+            --apiIssuer "$ASC_API_ISSUER_ID" 2>&1 | tee /tmp/upload.log
+          # altool can exit 0 even when the upload was rejected; treat its
+          # own failure markers as a failed step.
+          if grep -q "UPLOAD FAILED\|Failed to upload package" /tmp/upload.log; then
+            echo "altool reported an upload failure" >&2
+            exit 1
+          fi
+
+      - name: Verify build arrived on App Store Connect
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          cat > /tmp/verify-build.mjs <<'EOF'
+          import { createSign } from 'node:crypto';
+          const b64url = (s) => Buffer.from(s).toString('base64url');
+          function makeJwt() {
+            const header = b64url(JSON.stringify({ alg: 'ES256', kid: process.env.ASC_API_KEY_ID, typ: 'JWT' }));
+            const now = Math.floor(Date.now() / 1000);
+            const payload = b64url(JSON.stringify({ iss: process.env.ASC_API_ISSUER_ID, iat: now, exp: now + 600, aud: 'appstoreconnect-v1' }));
+            const signer = createSign('SHA256');
+            signer.update(header + '.' + payload);
+            signer.end();
+            const signature = signer.sign({ key: process.env.ASC_API_KEY_P8, dsaEncoding: 'ieee-p1363' }).toString('base64url');
+            return header + '.' + payload + '.' + signature;
+          }
+          const url = 'https://api.appstoreconnect.apple.com/v1/builds?filter[app]=6834720529&filter[version]=' + process.env.BUILD_NUMBER + '&limit=1';
+          for (let i = 0; i < 10; i++) {
+            const res = await fetch(url, { headers: { Authorization: 'Bearer ' + makeJwt() } });
+            const json = await res.json();
+            if (json.data && json.data.length > 0) {
+              console.log('Build found on App Store Connect:', json.data[0].attributes.version, json.data[0].attributes.processingState);
+              process.exit(0);
+            }
+            console.log('Build not visible yet, waiting 30s (attempt ' + (i + 1) + '/10)');
+            await new Promise((r) => setTimeout(r, 30000));
+          }
+          console.error('Build did not appear on App Store Connect');
+          process.exit(1);
+          EOF
+          node /tmp/verify-build.mjs
