@@ -39,6 +39,11 @@ for dead in cpu-features nan @mongodb-js/zstd node-liblzma; do
   rm -rf "$DST/node_modules/$dead"
 done
 
+# Native addons inside packages (e.g. ssh2's sshcrypto.node) are host-platform
+# binaries: they can never load in the jitless iOS runtime, and App Store
+# validation rejects standalone binaries in the bundle. Drop every *.node.
+find "$DST" -name '*.node' -type f -delete
+
 # Assert the poly1305 stub actually landed — a live-WASM ssh2 aborts every SSH connection
 # on device. Fail the bundle if the marker is missing rather than shipping broken SSH.
 POLY_BUNDLED="$DST/node_modules/ssh2/lib/protocol/crypto/poly1305.js"
