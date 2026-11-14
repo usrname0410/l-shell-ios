@@ -49,7 +49,9 @@ find "$DST" -name '*.node' -type f -delete
 # dangling, which App Store processing rejects (ITMS-90332). Drop .bin and
 # any other symlink that no longer resolves.
 rm -rf "$DST/node_modules/.bin"
-find "$DST" -xtype l -delete
+while IFS= read -r -d '' link; do
+  [ -e "$link" ] || rm -f "$link"
+  done < <(find "$DST" -type l -print0)
 
 # Assert the poly1305 stub actually landed — a live-WASM ssh2 aborts every SSH connection
 # on device. Fail the bundle if the marker is missing rather than shipping broken SSH.
