@@ -214,7 +214,7 @@ jobs:
             const signature = signer.sign({ key: process.env.ASC_API_KEY_P8, dsaEncoding: 'ieee-p1363' }).toString('base64url');
             return header + '.' + payload + '.' + signature;
           }
-          const url = 'https://api.appstoreconnect.apple.com/v1/builds?filter[app]=6834720529&filter[version]=' + process.env.BUILD_NUMBER + '&limit=1';
+          const url = 'https://api.appstoreconnect.apple.com/v1/builds?filter[app]=6834720529&sort=-uploadedDate&limit=1';
           for (let i = 0; i < 10; i++) {
             const res = await fetch(url, { headers: { Authorization: 'Bearer ' + makeJwt() } });
             const json = await res.json();
