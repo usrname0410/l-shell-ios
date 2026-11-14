@@ -80,13 +80,25 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k ci /tmp/ci.keychain
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           cp /tmp/profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
-          security cms -D -i /tmp/profile.mobileprovision > /tmp/profile.plist
-          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /tmp/profile.plist)
-          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' /tmp/profile.plist)
-          IML=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.kernel.increased-memory-limit' /tmp/profile.plist)
+          echo "Decoded profile (expected: 12250 bytes, sha256 44299f7dd387a0a21d049a7a78322434fde07a81451a5a379538467d9b798f43)"
+          wc -c /tmp/profile.mobileprovision
+          shasum -a 256 /tmp/profile.mobileprovision
+          python3 - <<'PYEOF' > /tmp/profile-vars.sh
+          import plistlib
+          data = open('/tmp/profile.mobileprovision','rb').read()
+          start = data.find(b'<?xml')
+          end = data.find(b'</plist>') + len(b'</plist>')
+          assert start >= 0 and end > start, 'plist not found in profile'
+          p = plistlib.loads(data[start:end])
+          print(f"PROFILE_UUID={p['UUID']}")
+          print(f"PROFILE_NAME=\"{p['Name']}\"")
+          print(f"IML={p['Entitlements']['com.apple.developer.kernel.increased-memory-limit']}")
+          PYEOF
+          cat /tmp/profile-vars.sh
+          source /tmp/profile-vars.sh
           echo "Profile: $PROFILE_NAME ($PROFILE_UUID), increased-memory-limit=$IML"
           test "$PROFILE_NAME" = "L Shell App Store"
-          test "$IML" = "true"
+          test "$IML" = "True"
           security find-identity -v -p codesigning || true
           mkdir -p ~/Library/Developer/Xcode/UserData/Provisioning\ Profiles
           cp /tmp/profile.mobileprovision ~/Library/Developer/Xcode/UserData/Provisioning\ Profiles/$PROFILE_UUID.mobileprovision
