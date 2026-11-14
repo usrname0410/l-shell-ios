@@ -52,6 +52,8 @@ targets:
         # without these entitlements; the simulator is exempt (hence terminal-only crash
         # on device). Both work with free provisioning.
         CODE_SIGN_ENTITLEMENTS: ClaudeTerminal/ClaudeTerminal.entitlements
+        CODE_SIGN_STYLE: Manual
+            PROVISIONING_PROFILE_SPECIFIER: "L Shell App Store"
         OTHER_LDFLAGS: "-ObjC"
         CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES: YES
         # CPython bridge: N-API headers (Node 18.19.1) + Python.framework Headers.
