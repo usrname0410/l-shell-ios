@@ -153,6 +153,7 @@ jobs:
             <key>method</key><string>app-store-connect</string>
             <key>teamID</key><string>${{ vars.APPLE_TEAM_ID }}</string>
             <key>signingStyle</key><string>manual</string>
+                        <key>signingCertificate</key><string>iPhone Distribution: Yutaro Koseki (3S4RCG5ZVF)</string>
             <key>stripSwiftSymbols</key><true/>
             <key>manageAppVersionAndBuildNumber</key><false/>
             <key>provisioningProfiles</key>
