@@ -27,6 +27,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Select Xcode 26
+        run: |
+          XCODE_APP=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$XCODE_APP" ]; then
+            echo "Selecting: $XCODE_APP"
+            sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          else
+            echo "No Xcode 26 found, using the default Xcode"
+          fi
+          xcodebuild -version
+
       - name: Install XcodeGen
         run: brew install xcodegen
 
@@ -69,6 +80,16 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k ci /tmp/ci.keychain
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           cp /tmp/profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
+          security cms -D -i /tmp/profile.mobileprovision > /tmp/profile.plist
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /tmp/profile.plist)
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' /tmp/profile.plist)
+          IML=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.kernel.increased-memory-limit' /tmp/profile.plist)
+          echo "Profile: $PROFILE_NAME ($PROFILE_UUID), increased-memory-limit=$IML"
+          test "$PROFILE_NAME" = "L Shell App Store"
+          test "$IML" = "true"
+          security find-identity -v -p codesigning || true
+          mkdir -p ~/Library/Developer/Xcode/UserData/Provisioning\ Profiles
+          cp /tmp/profile.mobileprovision ~/Library/Developer/Xcode/UserData/Provisioning\ Profiles/$PROFILE_UUID.mobileprovision
 
       - name: Archive
         run: |
@@ -81,7 +102,9 @@ jobs:
             CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM=${{ vars.APPLE_TEAM_ID }} \
             PRODUCT_BUNDLE_IDENTIFIER=${{ vars.BUNDLE_ID }} \
-            CURRENT_PROJECT_VERSION=${{ github.run_number }}
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            PROVISIONING_PROFILE_SPECIFIER="L Shell App Store" \
+            CODE_SIGN_IDENTITY="Apple Distribution"
 
       - name: Export IPA
         run: |
@@ -95,6 +118,10 @@ jobs:
             <key>signingStyle</key><string>manual</string>
             <key>stripSwiftSymbols</key><true/>
             <key>manageAppVersionAndBuildNumber</key><false/>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>${{ vars.BUNDLE_ID }}</key><string>L Shell App Store</string>
+            </dict>
           </dict>
           </plist>
           EOF
